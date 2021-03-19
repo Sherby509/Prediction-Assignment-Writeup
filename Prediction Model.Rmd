@@ -1,0 +1,202 @@
+---
+title: "Prediction Assignment Project"
+author: "Sherby509"
+date: "3/16/2021"
+output:
+  html_document:
+    df_print: paged
+---
+1- SUMMARY
+Here is the final report of a project related to the practical machine learning course. This report aims to predict how 6 participants who have completed the exercises previously established and also to allow answering some questions of a quiz related to the course.This report will describing how we built our model, how we used cross validation, what we think the expected out of sample error is, and why we made the choices we did. we will also use our prediction model to predict 20 different test cases. 
+2-BACKGROUND
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+here is the link for the training and the test data:
+[Training Set]https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+[Test Set]https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Let us load some packages
+```{r}
+library(knitr)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(rattle)
+library(corrplot)
+library(lattice)
+library(ggplot2)
+```
+
+```{r}
+library(randomForest)
+```
+# Let's set a seed
+```{r}
+set.seed(1813)
+```
+Now let's load the data from the links above
+```{r}
+Train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+Test  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+Train_Data <- read.csv(url(Train), strip.white = TRUE, na.strings = c("NA",""))
+Test_Data  <- read.csv(url(Test),  strip.white = TRUE, na.strings = c("NA",""))
+```
+# Let's see the dimension of each of them
+```{r}
+dim(Train_Data)
+```
+```{r}
+dim(Test_Data)
+```
+# Let's create a partition using caret with the training dataset (ratio: 70,30)
+```{r}
+Train_Part<- createDataPartition(Train_Data$classe, p=0.7, list=FALSE)
+Train_set <- Train_Data[ Train_Part, ]
+Test_set  <- Train_Data[-Train_Part, ]
+
+```
+# Let's see the dimension of each of them once again
+```{r}
+dim(Train_set)
+```
+```{r}
+dim(Test_set)
+```
+Both datasets contain NA values as well as near-zero-variance (NZV) variables. Let's remove the NZV and their identifying variables.
+# variables with Nearly Zero Variance
+```{r}
+VAR_NZV <- nearZeroVar(Train_set)
+Train_set <- Train_set[, -VAR_NZV]
+Test_set  <- Test_set[, -VAR_NZV]
+```
+```{r}
+dim(Train_set)
+```
+```{r}
+dim(Test_set)
+```
+# variables containing NA
+```{r}
+VAR_NA <- sapply(Train_set, function(x) mean(is.na(x))) > 0.95
+Train_set <- Train_set[ , VAR_NA == FALSE]
+Test_set  <- Test_set [ , VAR_NA == FALSE]
+```
+
+```{r}
+dim(Train_set)
+```
+```{r}
+dim(Test_set)
+```
+we're already down to 59 variables from 160. Now as the first 5 variables are identifiers and they won't be useful for prediction, so get rid of those
+```{r}
+Train_set <- Train_set[ , -(1:5)]
+Test_set  <- Test_set [ , -(1:5)]
+```
+```{r}
+dim(Train_set)
+```
+```{r}
+dim(Test_set)
+```
+Now we reduce the number of variable from 160 to 54. We can perform a correlation analysis between the variables.
+```{r}
+COREL_Matrix <- cor(Train_set[ , -54])
+corrplot(COREL_Matrix, order = "FPC", method = "circle", type = "lower",
+         tl.cex = 0.9, tl.col =rgb(0.9, 0, 0.5))
+```
+
+As indicated in the graph above, it should be noted that the variables that are strongly correlated are indicated in dark colors as positive or negative correlation in respectively dark blue or dark red.
+Now We'll build three (3) models: a Random Forest,a Decision Tree and a Generalized Boosted Model:
+1-Random Forest
+  # Model fit
+```{r}
+library(e1071)
+```
+
+```{r}
+set.seed(1813)
+Random_For <- trainControl(method="repeatedcv", number=3,repeats = 2, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=Train_set, method="rf",
+                          trControl=Random_For)
+modFitRandForest$finalModel
+```
+# Prediction on the Test_set
+```{r}
+Pred_RandF <- predict(modFitRandForest, newdata=Test_set)
+```
+```{r}
+Conf_MatRandF <- confusionMatrix(Pred_RandF, as.factor(Test_set$classe))
+```
+```{r}
+Conf_MatRandF
+```
+We have a predictive accuracy of the decision tree model which is relatively high at 99.8 %.
+# Let us plot this one
+```{r}
+plot(Conf_MatRandF$table, col = Conf_MatRandF$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(Conf_MatRandF$overall['Accuracy'], 4)))
+```
+
+2-Decision Tree Model
+```{r}
+set.seed(1813)
+Dec_Tree_Mod <- rpart(classe ~ ., data = Train_set, method="class")
+fancyRpartPlot(Dec_Tree_Mod)
+```
+
+# Let'sprediction on Test dataset
+```{r}
+Dec_Tree_Pred <- predict(Dec_Tree_Mod, newdata = Test_set, type="class")
+Dec_Tree_Matrix <- confusionMatrix(Dec_Tree_Pred, as.factor(Test_set$classe))
+Dec_Tree_Matrix
+```
+The predictive accuracy of the decision tree model is relatively low at 74.44 %.Let us plot this one again
+```{r}
+plot(Dec_Tree_Matrix$table, col = Dec_Tree_Matrix$byClass, 
+     main = paste("Decision Tree - Accuracy =",
+                  round(Dec_Tree_Matrix$overall['Accuracy'], 4)))
+```
+
+3-Generalized Boosted Model (GBM)
+```{r}
+library(gbm)
+```
+
+```{r}
+contr_GBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+model_GBM  <- train(classe ~ ., data=Train_set, method = "gbm",
+                    trControl = contr_GBM, verbose = FALSE)
+```
+```{r}
+model_GBM$finalModel
+```
+# Let's set the prediction on test dataset
+```{r}
+GBM_Predict <- predict(model_GBM, newdata=Test_set)
+Mat_GBM_Conf <- confusionMatrix(GBM_Predict, as.factor(Test_set$classe))
+Mat_GBM_Conf
+```
+# Let's plot the matrix results
+```{r}
+plot(Mat_GBM_Conf$table, col = Mat_GBM_Conf$byClass, 
+     main = paste("GBM - Accuracy =", round(Mat_GBM_Conf$overall['Accuracy'], 4)))
+```
+
+As we can see it above, the predictive accuracy of the GBM is high at 98.84 %.
+
+At the end of all that  we can see the random forest has marginally better performance than the generalized boosted model and the Decision Tree respectively. The three models are scored in the ascending order as shown above
+
+Decision Tree Model: 74.44 %
+Generalized Boosted Model: 98.84 %
+Random Forest Model: 99.78 %
+
+# In that case, the Random Forest model will be selected and be applied to make predictions on the 20 quiz results (Data Quiz) as shown below.
+```{r}
+Quiz_Prediction <- predict(modFitRandForest, newdata = Test_Data )
+Quiz_Prediction
+```
+
